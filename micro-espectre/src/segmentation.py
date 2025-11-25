@@ -6,6 +6,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 import math
+from src.config import SEG_WINDOW_SIZE, SEG_THRESHOLD
 
 
 class SegmentationContext:
@@ -15,20 +16,15 @@ class SegmentationContext:
     STATE_IDLE = 0
     STATE_MOTION = 1
     
-    def __init__(self, window_size=30, min_length=10, 
-                 max_length=60, threshold=3.0):
+    def __init__(self, window_size=SEG_WINDOW_SIZE, threshold=SEG_THRESHOLD):
         """
         Initialize segmentation context
         
         Args:
-            window_size: Moving variance window size (3-50)
-            min_length: Minimum motion segment length (5-100)
-            max_length: Maximum motion segment length (10-200)
+            window_size: Moving variance window size
             threshold: Motion detection threshold value
         """
         self.window_size = window_size
-        self.min_length = min_length
-        self.max_length = max_length
         self.threshold = threshold
         
         # Turbulence circular buffer
@@ -38,8 +34,6 @@ class SegmentationContext:
         
         # State machine
         self.state = self.STATE_IDLE
-        self.motion_start_index = 0
-        self.motion_length = 0
         self.packet_index = 0
         
         # Current metrics
@@ -119,9 +113,6 @@ class SegmentationContext:
         
         Args:
             turbulence: Spatial turbulence value
-            
-        Returns:
-            bool: True if a motion segment was completed
         """
         self.last_turbulence = turbulence
         
@@ -134,35 +125,19 @@ class SegmentationContext:
         # Calculate moving variance
         self.current_moving_variance = self._calculate_moving_variance()
         
-        # State machine
-        segment_completed = False
-        
+        # State machine (simplified)
         if self.state == self.STATE_IDLE:
             # Check for motion start
             if self.current_moving_variance > self.threshold:
                 self.state = self.STATE_MOTION
-                self.motion_start_index = self.packet_index
-                self.motion_length = 1
         
         elif self.state == self.STATE_MOTION:
-            self.motion_length += 1
-            
             # Check for motion end
             if self.current_moving_variance <= self.threshold:
                 # Motion ended
-                if self.motion_length >= self.min_length:
-                    segment_completed = True
                 self.state = self.STATE_IDLE
-                self.motion_length = 0
-            
-            # Check max length
-            elif self.max_length > 0 and self.motion_length >= self.max_length:
-                segment_completed = True
-                self.state = self.STATE_IDLE
-                self.motion_length = 0
         
         self.packet_index += 1
-        return segment_completed
     
     def get_state(self):
         """Get current state (IDLE or MOTION)"""
@@ -174,13 +149,10 @@ class SegmentationContext:
             'moving_variance': self.current_moving_variance,
             'threshold': self.threshold,
             'turbulence': self.last_turbulence,
-            'state': self.state,
-            'motion_length': self.motion_length
+            'state': self.state
         }
     
     def reset(self):
         """Reset state machine (keep buffer warm)"""
         self.state = self.STATE_IDLE
-        self.motion_start_index = 0
-        self.motion_length = 0
         self.packet_index = 0
